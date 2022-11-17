@@ -1,0 +1,283 @@
+namespace: tanzu-system-registry
+hostname: harbor.yourdomain.com
+port:
+  https: 443
+logLevel: info
+tlsCertificate:
+  tls.crt:
+  tls.key:
+  ca.crt:
+  tlsSecretLabels:
+tlsCertificateSecretName:
+enableContourHttpProxy: true
+contourHttpProxy:
+  timeout: 0s
+  idleTimeout: 5m
+harborAdminPassword:
+secretKey:
+database:
+  password:
+  shmSizeLimit:
+  maxIdleConns:
+  maxOpenConns:
+exporter:
+  cacheDuration:
+core:
+  replicas: 1
+  secret:
+  xsrfKey:
+jobservice:
+  replicas: 1
+  secret:
+registry:
+  replicas: 1
+  secret:
+notary:
+  enabled: true
+trivy:
+  enabled: true
+  replicas: 1
+  gitHubToken: ""
+  skipUpdate: false
+  offlineScan: false
+  timeout:
+persistence:
+  persistentVolumeClaim:
+    registry:
+      existingClaim: ""
+      storageClass: ""
+      subPath: ""
+      accessMode: ReadWriteOnce
+      size: 10Gi
+    jobservice:
+      existingClaim: ""
+      storageClass: ""
+      subPath: ""
+      accessMode: ReadWriteOnce
+      size: 1Gi
+    database:
+      existingClaim: ""
+      storageClass: ""
+      subPath: ""
+      accessMode: ReadWriteOnce
+      size: 1Gi
+    redis:
+      existingClaim: ""
+      storageClass: ""
+      subPath: ""
+      accessMode: ReadWriteOnce
+      size: 1Gi
+    trivy:
+      existingClaim: ""
+      storageClass: ""
+      subPath: ""
+      accessMode: ReadWriteOnce
+      size: 5Gi
+  imageChartStorage:
+    disableredirect: false
+    type: filesystem
+    filesystem:
+      rootdirectory: /storage
+    azure:
+      accountname: accountname
+      accountkey: base64encodedaccountkey
+      container: containername
+      realm: core.windows.net
+    gcs:
+      bucket: bucketname
+      encodedkey: base64-encoded-json-key-file
+      rootdirectory: null
+      chunksize: 5242880
+    s3:
+      region: us-west-1
+      bucket: bucketname
+      accesskey: null
+      secretkey: null
+      regionendpoint: null
+      encrypt: false
+      keyid: null
+      secure: true
+      skipverify: false
+      v4auth: true
+      chunksize: null
+      rootdirectory: null
+      storageclass: STANDARD
+      multipartcopychunksize: null
+      multipartcopymaxconcurrency: null
+      multipartcopythresholdsize: null
+    swift:
+      authurl: https://storage.myprovider.com/v3/auth
+      username: username
+      password: password
+      container: containername
+      region: null
+      tenant: null
+      tenantid: null
+      domain: null
+      domainid: null
+      trustid: null
+      insecureskipverify: null
+      chunksize: null
+      prefix: null
+      secretkey: null
+      accesskey: null
+      authversion: null
+      endpointtype: null
+      tempurlcontainerkey: null
+      tempurlmethods: null
+    oss:
+      accesskeyid: accesskeyid
+      accesskeysecret: accesskeysecret
+      region: regionname
+      bucket: bucketname
+      endpoint: null
+      internal: null
+      encrypt: null
+      secure: null
+      chunksize: null
+      rootdirectory: null
+proxy:
+  httpProxy:
+  httpsProxy:
+  noProxy: 127.0.0.1,localhost,.local,.internal
+pspNames: null
+caBundleSecretName:
+metrics:
+  enabled: false
+  core:
+    path: /metrics
+    port: 8001
+  registry:
+    path: /metrics
+    port: 8001
+  jobservice:
+    path: /metrics
+    port: 8001
+  exporter:
+    path: /metrics
+    port: 8001
+network:
+  ipFamilies: []
+trace:
+  enabled: false
+  provider: jaeger
+  sample_rate: 1
+  namespace:
+  attributes:
+    application: harbor
+  jaeger:
+    endpoint: http://hostname:14268/api/traces
+    username:
+    password:
+    agent_host:
+    agent_port:
+  otel:
+    endpoint: hostname:4318
+    url_path: /v1/traces
+    compression: false
+    insecure: true
+    timeout: 10
+Harbor FSGroup Overlay
+fix-fsgroup-overlay.yaml:
+
+#@ load("@ytt:overlay", "overlay")
+
+#@overlay/match by=overlay.and_op(overlay.subset({"kind": "StatefulSet"}), overlay.subset({"metadata": {"name": "harbor-database"}}))
+---
+spec:
+  template:
+    spec:
+      initContainers:
+        #@overlay/match by=overlay.index(0)
+        #@overlay/insert before=True
+        - name: "data-ownership-ensurer"
+          securityContext:
+            runAsUser: 0
+          image: projects.registry.vmware.com/tkg/harbor/harbor-db@sha256:26ce0071b528944fd33080f273d0812da479da557eee2727409bd4162719deff
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "chown -R postgres:postgres /var/lib/postgresql/data || true"]
+          volumeMounts:
+            - name: database-data
+              mountPath: /var/lib/postgresql/data
+              subPath:
+
+#@overlay/match by=overlay.and_op(overlay.subset({"kind": "StatefulSet"}), overlay.subset({"metadata": {"name": "harbor-redis"}}))
+---
+spec:
+  template:
+    spec:
+      #@overlay/match missing_ok=True
+      initContainers:
+        - name: "redis-ownership-ensurer"
+          securityContext:
+            runAsUser: 0
+          image: projects.registry.vmware.com/tkg/harbor/redis-photon@sha256:5b55e6d2b2da4d8f1eca413c7d79bebfed64fb69db891b80bc4a28f733f1c85e
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "chown -R 999:999 /var/lib/redis || true"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redis
+              subPath:
+              readOnly: false
+
+#@overlay/match by=overlay.and_op(overlay.subset({"kind": "StatefulSet"}), overlay.subset({"metadata": {"name": "harbor-trivy"}}))
+---
+spec:
+  template:
+    spec:
+      #@overlay/match missing_ok=True
+      initContainers:
+        - name: "trivy-ownership-ensurer"
+          securityContext:
+            runAsUser: 0
+          image: projects.registry.vmware.com/tkg/harbor/trivy-adapter-photon@sha256:722bcbe039a3d83bc4cc1d78de1cf533bd38b829d494af288622fa956ca648f8
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "chown -R 10000:10000 /home/scanner/.cache || true"]
+          volumeMounts:
+            - name: data
+              mountPath: /home/scanner/.cache
+              subPath:
+              readOnly: false
+
+#@overlay/match by=overlay.and_op(overlay.subset({"kind": "Deployment"}), overlay.subset({"metadata": {"name": "harbor-jobservice"}}))
+---
+spec:
+  template:
+    spec:
+      #@overlay/match missing_ok=True
+      initContainers:
+        - name: "jobservice-ownership-ensurer"
+          securityContext:
+            runAsUser: 0
+          image: projects.registry.vmware.com/tkg/harbor/harbor-jobservice@sha256:1ab9315d6832320413f0ff48b414c26cbcf3beec9a6ccc13a74e07ecffe2a8e0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "chown -R 10000:10000 /var/log/jobs || true"]
+          volumeMounts:
+            - name: job-logs
+              mountPath: /var/log/jobs
+              subPath:
+              readOnly: false
+
+#@overlay/match by=overlay.and_op(overlay.subset({"kind": "Deployment"}), overlay.subset({"metadata": {"name": "harbor-registry"}}))
+---
+spec:
+  template:
+    spec:
+      #@overlay/match missing_ok=True
+      initContainers:
+        - name: "registry-ownership-ensurer"
+          securityContext:
+            runAsUser: 0
+          image: projects.registry.vmware.com/tkg/harbor/harbor-registryctl@sha256:aa7a6547a46b2b0222c7187567e6f85ffbd853611038bf1b0c33a8356d863108
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["-c", "chown -R 10000:10000 /storage || true"]
+          volumeMounts:
+            - name: registry-data
+              mountPath: /storage
+              subPath:
+              readOnly: false
