@@ -6,7 +6,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: tanzu-package-repo-private
+  name: tanzu-package-repo-global
 ---
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
