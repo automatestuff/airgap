@@ -6,7 +6,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: tanzu-package-repo-global
+  name: tanzu-package-repo-private
 ---
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
@@ -1275,7 +1275,7 @@ spec:
               fieldPath: metadata.namespace
         - name: KAPPCTRL_API_PORT
           value: "10350"
-        image: projects.registry.vmware.com/tkg/kapp-controller:v0.30.0_vmware.1
+        image: harbor.lab.automatestuff.io/tkg/kapp-controller-0.30.0:v0.30.0_vmware.1
         name: kapp-controller
         ports:
         - containerPort: 10350
